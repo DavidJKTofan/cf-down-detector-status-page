@@ -130,10 +130,6 @@ export const endpoints = {
 				description: 'Amazon Web Services Homepage',
 			},
 			{
-				url: 'https://eu-north-1.signin.aws.amazon.com/',
-				description: 'AWS Management Console EU North 1',
-			},
-			{
 				url: 'https://eu-west-1.signin.aws.amazon.com/',
 				description: 'AWS Management Console EU West 1',
 			},
