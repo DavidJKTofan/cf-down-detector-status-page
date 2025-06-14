@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="description" content="Monitor service health and latency for various cloud providers and security services." />
+		<meta name="theme-color" content="#0f172a" />
+		<title>Service Status Dashboard</title>
+		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+		<link rel="stylesheet" href="styles.css" />
+	</head>
+	<body>
+		<div class="container">
+			<header>
+				<h1>Service Status Dashboard</h1>
+				<div class="error-message" id="error-message"></div>
+			</header>
+
+			<div class="loading-indicator" id="loading-indicator">Loading...</div>
+
+			<main class="dashboard">
+				<aside class="sidebar">
+					<div class="sidebar-header">
+						<h2>Services</h2>
+					</div>
+					<div class="services-container" id="services-container">
+						<div class="no-chart-message">
+							<div class="message-icon">⏳</div>
+							<p>Loading services...</p>
+						</div>
+					</div>
+					<div class="last-updated" id="last-updated">Last updated: Never</div>
+				</aside>
+
+				<section class="chart-section">
+					<div class="chart-header" id="chart-header">
+						<h3 class="chart-title">
+							📊 Response Time History
+							<span class="chart-endpoint" id="chart-endpoint"></span>
+						</h3>
+					</div>
+					<div class="stats-summary" id="stats-summary">
+						<div class="stat-item">
+							<span class="stat-label">Average Latency</span>
+							<span class="stat-value" id="avg-latency">-</span>
+						</div>
+						<div class="stat-item">
+							<span class="stat-label">P90 Latency</span>
+							<span class="stat-value" id="p90-latency">-</span>
+						</div>
+						<div class="stat-item">
+							<span class="stat-label">Uptime</span>
+							<span class="stat-value" id="uptime">-</span>
+						</div>
+					</div>
+					<div class="chart-container">
+						<div class="chart-wrapper">
+							<canvas id="latencyChart" style="display: none"></canvas>
+							<div class="no-chart-message" id="no-chart">
+								<div class="message-icon">📊</div>
+								<p>Select a service to view its latency history</p>
+							</div>
+						</div>
+					</div>
+				</section>
+			</main>
+
+			<footer>
+				<div class="footer-content">
+					<div class="methodology">
+						<h4>📊 Testing Methodology</h4>
+						<p>
+							<strong>Test Frequency:</strong> Every 5 minutes using Cloudflare Workers cron triggers<br />
+							<strong>Test Method:</strong> HTTP HEAD requests with 10-second timeout<br />
+							<strong>Test Location:</strong> <span id="test-location">Loading...</span><br />
+							<strong>Data Retention:</strong> 60 days of historical data<br />
+							<strong>Status Determination:</strong> HTTP 2xx/3xx responses = UP, all others = DOWN
+						</p>
+					</div>
+					<div class="tech-stack">
+						<p>
+							Built with <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> &
+							<a href="https://developers.cloudflare.com/durable-objects/" target="_blank" rel="noopener">Durable Objects</a> • For
+							educational purposes only
+						</p>
+					</div>
+				</div>
+			</footer>
+		</div>
+
+		<script>
+			const DOMAINS = ['https://downdetector.automatic-demo.com', 'https://down-detector.cf-testing.workers.dev'];
+
+			let currentDomain = null;
+			let chart = null;
+			let isLoading = false;
+			let configData = null;
+			let firstEndpoint = null;
+
+			const elements = {
+				errorMessage: document.getElementById('error-message'),
+				loadingIndicator: document.getElementById('loading-indicator'),
+				servicesContainer: document.getElementById('services-container'),
+				statsSection: document.getElementById('stats-summary'),
+				noChart: document.getElementById('no-chart'),
+				chartCanvas: document.getElementById('latencyChart'),
+				chartHeader: document.getElementById('chart-header'),
+				chartEndpoint: document.getElementById('chart-endpoint'),
+				avgLatency: document.getElementById('avg-latency'),
+				p90Latency: document.getElementById('p90-latency'),
+				uptime: document.getElementById('uptime'),
+				lastUpdated: document.getElementById('last-updated'),
+			};
+
+			// Get shared endpoint from URL
+			const urlParams = new URLSearchParams(window.location.search);
+			const sharedEndpoint = urlParams.get('endpoint');
+
+			function showLoading() {
+				if (!isLoading) {
+					isLoading = true;
+					elements.loadingIndicator.style.display = 'block';
+				}
+			}
+
+			function hideLoading() {
+				isLoading = false;
+				elements.loadingIndicator.style.display = 'none';
+			}
+
+			function showError(message) {
+				elements.errorMessage.textContent = message;
+				elements.errorMessage.style.display = 'block';
+				setTimeout(() => {
+					elements.errorMessage.style.display = 'none';
+				}, 5000);
+			}
+
+			function updateLastUpdated() {
+				elements.lastUpdated.textContent = `Last updated: ${new Date().toLocaleDateString()}`;
+			}
+
+			async function tryFetch(path) {
+				for (const domain of DOMAINS) {
+					try {
+						const response = await fetch(`${domain}${path}`);
+						if (response.ok) {
+							currentDomain = domain;
+							return await response.json();
+						}
+					} catch (error) {
+						console.warn(`Failed to fetch from ${domain}:`, error);
+					}
+				}
+				throw new Error('Failed to fetch from all domains');
+			}
+
+			async function fetchConfig() {
+				try {
+					configData = await tryFetch('/api/config');
+				} catch (error) {
+					console.warn('Config not available, using fallback grouping');
+				}
+			}
+
+			function groupServices(data) {
+				const groups = {};
+
+				if (!configData) {
+					// Fallback grouping by domain
+					for (const [endpoint, metrics] of Object.entries(data)) {
+						const domain = new URL(endpoint).hostname.split('.').slice(-2, -1)[0];
+						const groupName = domain.charAt(0).toUpperCase() + domain.slice(1);
+
+						if (!groups[groupName]) {
+							groups[groupName] = [];
+						}
+						groups[groupName].push({ endpoint, metrics, name: new URL(endpoint).hostname });
+					}
+				} else {
+					// Use config-based grouping
+					for (const [groupKey, group] of Object.entries(configData)) {
+						if (!groups[group.name]) {
+							groups[group.name] = [];
+						}
+
+						for (const service of group.urls) {
+							if (data[service.url]) {
+								groups[group.name].push({
+									endpoint: service.url,
+									metrics: data[service.url],
+									name: new URL(service.url).hostname,
+								});
+							}
+						}
+					}
+				}
+
+				return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
+			}
+
+			async function fetchStatus() {
+				try {
+					showLoading();
+					const data = await tryFetch('/api/status');
+					hideLoading();
+					updateLastUpdated();
+
+					// Update the test location (colo) in the footer
+					const firstMetric = Object.values(data)[0];
+					const testLocationSpan = document.getElementById('test-location');
+					if (firstMetric && firstMetric.colo && firstMetric.colo !== 'unknown') {
+						testLocationSpan.textContent = firstMetric.colo.toUpperCase();
+					} else {
+						testLocationSpan.textContent = 'Global';
+					}
+
+					let endpointToLoad = null;
+
+					// Determine which endpoint to display on load
+					if (sharedEndpoint && data[sharedEndpoint]) {
+						endpointToLoad = sharedEndpoint;
+						// If there's a shared endpoint, make it the "first" for active class purposes
+						if (!firstEndpoint) firstEndpoint = sharedEndpoint;
+					} else if (!firstEndpoint && Object.keys(data).length > 0) {
+						// Set the first endpoint for the session if not already set
+						firstEndpoint = Object.keys(data)[0];
+						endpointToLoad = firstEndpoint;
+					}
+
+					// Render services, which will now correctly highlight the active endpoint
+					renderServices(data);
+
+					// Load the chart for the determined endpoint
+					if (endpointToLoad) {
+						updateChart(endpointToLoad);
+					}
+				} catch (error) {
+					hideLoading();
+					showError('Failed to load service data. Retrying...');
+					console.error('Error fetching status:', error);
+
+					// Retry after 5 seconds
+					setTimeout(fetchStatus, 5000);
+				}
+			}
+
+			function renderServices(data) {
+				const groups = groupServices(data);
+
+				elements.servicesContainer.innerHTML = '';
+
+				for (const [groupName, services] of Object.entries(groups)) {
+					const groupDiv = document.createElement('div');
+					groupDiv.className = 'service-group';
+
+					const hasIssues = services.some((s) => s.metrics.status === 'down');
+					const statusEmoji = hasIssues ? '🔴' : '🟢';
+
+					groupDiv.innerHTML = `
+                    <div class="group-header">
+                        <h3><span class="status-pulse">${statusEmoji}</span> ${groupName}</h3>
+                    </div>
+                    <div class="service-list"></div>
+                `;
+
+					const serviceList = groupDiv.querySelector('.service-list');
+
+					services.forEach(({ endpoint, metrics, name }) => {
+						const card = document.createElement('div');
+						card.className = `service-card${endpoint === firstEndpoint ? ' active' : ''}`;
+
+						const statusEmoji = metrics.status === 'up' ? '🟢' : '🔴';
+						const statusText = metrics.status === 'up' ? 'Online' : 'Offline';
+						const statusClass = metrics.status === 'up' ? 'status-up' : 'status-down';
+
+						card.innerHTML = `
+                        <div class="service-header">
+                            <div class="service-name">${name}</div>
+                            <button class="share-button" title="Share this service" data-endpoint="${endpoint}">
+                                🔗
+                            </button>
+                        </div>
+                        <div class="service-status ${statusClass}">
+                            <span class="status-pulse">${statusEmoji}</span> ${statusText}
+                        </div>
+                        <div class="service-metrics">
+                            <div>Latency: <span class="latency-value">${metrics.latency?.toFixed(1) || '-'}ms</span></div>
+                            <div>Updated: ${new Date(metrics.date).toLocaleTimeString()}</div>
+                        </div>
+                    `;
+
+						card.addEventListener('click', (e) => {
+							if (e.target.closest('.share-button')) return;
+
+							document.querySelectorAll('.service-card').forEach((c) => c.classList.remove('active'));
+							card.classList.add('active');
+							updateChart(endpoint);
+
+							const newUrl = new URL(window.location);
+							newUrl.searchParams.set('endpoint', endpoint);
+							window.history.pushState({}, '', newUrl);
+						});
+
+						serviceList.appendChild(card);
+					});
+
+					elements.servicesContainer.appendChild(groupDiv);
+				}
+
+				// Add share button functionality
+				document.querySelectorAll('.share-button').forEach((button) => {
+					button.addEventListener('click', (e) => {
+						e.stopPropagation();
+						const endpoint = button.dataset.endpoint;
+						const url = new URL(window.location);
+						url.searchParams.set('endpoint', endpoint);
+
+						navigator.clipboard.writeText(url.toString()).then(() => {
+							button.textContent = '✓';
+							setTimeout(() => {
+								button.textContent = '🔗';
+							}, 2000);
+						});
+					});
+				});
+			}
+
+			async function updateChart(endpoint) {
+				try {
+					showLoading();
+					const data = await tryFetch(`/api/metrics?endpoint=${encodeURIComponent(endpoint)}`);
+					hideLoading();
+
+					// Show chart header with endpoint
+					elements.chartHeader.style.display = 'block';
+					elements.chartEndpoint.textContent = new URL(endpoint).hostname;
+
+					// Update stats
+					if (data.averageLatency || data.p90Latency) {
+						elements.statsSection.style.display = 'grid';
+						elements.avgLatency.textContent = `${data.averageLatency?.toFixed(1) || '-'}ms`;
+						elements.p90Latency.textContent = `${data.p90Latency?.toFixed(1) || '-'}ms`;
+						elements.uptime.textContent = `${data.uptime?.toFixed(2) || '-'}%`;
+					} else {
+						elements.statsSection.style.display = 'none';
+					}
+
+					// Show chart
+					elements.noChart.style.display = 'none';
+					elements.chartCanvas.style.display = 'block';
+
+					const timestamps = data.history.map((item) => new Date(item.date).toLocaleString());
+					const latencies = data.history.map((item) => item.latency);
+
+					if (chart) chart.destroy();
+
+					const ctx = elements.chartCanvas.getContext('2d');
+					chart = new Chart(ctx, {
+						type: 'line',
+						data: {
+							labels: timestamps,
+							datasets: [
+								{
+									label: `${new URL(endpoint).hostname}`,
+									data: latencies,
+									borderColor: '#60a5fa',
+									backgroundColor: 'rgba(96, 165, 250, 0.1)',
+									tension: 0.4,
+									fill: true,
+									pointRadius: 3,
+									pointHoverRadius: 6,
+								},
+							],
+						},
+						options: {
+							responsive: true,
+							maintainAspectRatio: false,
+							interaction: {
+								intersect: false,
+								mode: 'index',
+							},
+							plugins: {
+								title: {
+									display: false,
+								},
+								legend: {
+									display: false,
+								},
+								tooltip: {
+									backgroundColor: 'rgba(15, 23, 42, 0.95)',
+									titleColor: '#f1f5f9',
+									bodyColor: '#f1f5f9',
+									borderColor: '#334155',
+									borderWidth: 1,
+									cornerRadius: 8,
+									padding: 12,
+									displayColors: false,
+									callbacks: {
+										title: (context) => {
+											const dataIndex = context[0].dataIndex;
+											const originalDate = data.history[dataIndex].date;
+											return new Date(originalDate).toLocaleString();
+										},
+										label: (context) => `Response time: ${context.raw.toFixed(1)}ms`,
+									},
+								},
+							},
+							scales: {
+								y: {
+									beginAtZero: true,
+									grid: {
+										color: 'rgba(148, 163, 184, 0.1)',
+									},
+									ticks: {
+										color: '#94a3b8',
+										callback: (value) => `${value}ms`,
+									},
+									title: {
+										display: true,
+										text: 'Response Time (ms)',
+										color: '#94a3b8',
+									},
+								},
+								x: {
+									grid: {
+										color: 'rgba(148, 163, 184, 0.1)',
+									},
+									ticks: {
+										color: '#94a3b8',
+										maxRotation: 45,
+										autoSkip: true,
+										maxTicksLimit: 10,
+									},
+									title: {
+										display: true,
+										text: 'Time',
+										color: '#94a3b8',
+									},
+								},
+							},
+						},
+					});
+				} catch (error) {
+					hideLoading();
+					showError('Failed to load chart data');
+					console.error('Error updating chart:', error);
+					elements.noChart.style.display = 'flex';
+					elements.chartCanvas.style.display = 'none';
+					elements.chartHeader.style.display = 'none';
+					elements.statsSection.style.display = 'none';
+				}
+			}
+
+			// Initialize
+			async function init() {
+				await fetchConfig();
+				await fetchStatus();
+
+				// Refresh every minute
+				setInterval(() => {
+					fetchStatus();
+					// If a chart is currently shown, refresh it too
+					const activeCard = document.querySelector('.service-card.active');
+					if (activeCard) {
+						const endpoint = activeCard.querySelector('.share-button').dataset.endpoint;
+						updateChart(endpoint);
+					}
+				}, 60000);
+			}
+
+			// Handle browser navigation
+			window.addEventListener('popstate', () => {
+				const urlParams = new URLSearchParams(window.location.search);
+				const endpoint = urlParams.get('endpoint');
+				if (endpoint) {
+					updateChart(endpoint);
+					document.querySelectorAll('.service-card').forEach((card) => {
+						card.classList.toggle('active', card.querySelector('.share-button').dataset.endpoint === endpoint);
+					});
+				}
+			});
+
+			// Start the app
+			init();
+		</script>
+	</body>
+</html>
