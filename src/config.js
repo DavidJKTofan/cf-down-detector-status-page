@@ -12,6 +12,10 @@ export const endpoints = {
 				url: 'https://one.dash.cloudflare.com/',
 				description: 'Cloudflare Zero Trust',
 			},
+			{
+				url: 'https://one.one.one.one/',
+				description: 'Cloudflare Public DNS Resolver',
+			},
 		],
 	},
 	zscaler: {
@@ -102,6 +106,67 @@ export const endpoints = {
 			{
 				url: 'https://login.linode.com/login',
 				description: 'Linode Cloud Manager',
+			},
+		],
+	},
+	google: {
+		name: 'Google',
+		urls: [
+			{
+				url: 'https://cloud.google.com/',
+				description: 'Google Cloud Platform',
+			},
+			{
+				url: 'https://dns.google/',
+				description: 'Google Public DNS',
+			},
+		],
+	},
+	aws: {
+		name: 'Amazon Web Services',
+		urls: [
+			{
+				url: 'https://aws.amazon.com/',
+				description: 'Amazon Web Services Homepage',
+			},
+			{
+				url: 'https://console.aws.amazon.com/',
+				description: 'AWS Management Console',
+			},
+		],
+	},
+	microsoft: {
+		name: 'Microsoft',
+		urls: [
+			{
+				url: 'https://azure.microsoft.com/',
+				description: 'Microsoft Azure',
+			},
+			{
+				url: 'https://login.microsoftonline.com/',
+				description: 'Microsoft Azure Portal',
+			},
+		],
+	},
+	oracle: {
+		name: 'Oracle',
+		urls: [
+			{
+				url: 'https://signon.oracle.com/signin',
+				description: 'Oracle Cloud',
+			},
+			{
+				url: 'https://cloud.oracle.com/',
+				description: 'Oracle Account Management',
+			},
+		],
+	},
+	ibm: {
+		name: 'IBM',
+		urls: [
+			{
+				url: 'https://cloud.ibm.com/login',
+				description: 'IBM Cloud',
 			},
 		],
 	},
