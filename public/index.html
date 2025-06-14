@@ -326,6 +326,7 @@
 				});
 			}
 
+			// Replace the updateChart function in index.html with this fixed version
 			async function updateChart(endpoint) {
 				try {
 					showLoading();
@@ -336,12 +337,12 @@
 					elements.chartHeader.style.display = 'block';
 					elements.chartEndpoint.textContent = new URL(endpoint).hostname;
 
-					// Update stats
-					if (data.averageLatency || data.p90Latency) {
+					// Update stats - Fixed condition to check for undefined/null instead of falsy values
+					if (data.averageLatency !== undefined || data.p90Latency !== undefined) {
 						elements.statsSection.style.display = 'grid';
-						elements.avgLatency.textContent = `${data.averageLatency?.toFixed(1) || '-'}ms`;
-						elements.p90Latency.textContent = `${data.p90Latency?.toFixed(1) || '-'}ms`;
-						elements.uptime.textContent = `${data.uptime?.toFixed(2) || '-'}%`;
+						elements.avgLatency.textContent = `${data.averageLatency?.toFixed(1) || '0.0'}ms`;
+						elements.p90Latency.textContent = `${data.p90Latency?.toFixed(1) || '0.0'}ms`;
+						elements.uptime.textContent = `${data.uptime?.toFixed(2) || '0.00'}%`;
 					} else {
 						elements.statsSection.style.display = 'none';
 					}
@@ -451,7 +452,6 @@
 					elements.statsSection.style.display = 'none';
 				}
 			}
-
 			// Initialize
 			async function init() {
 				await fetchConfig();
