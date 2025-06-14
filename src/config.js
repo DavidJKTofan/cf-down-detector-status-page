@@ -130,8 +130,16 @@ export const endpoints = {
 				description: 'Amazon Web Services Homepage',
 			},
 			{
-				url: 'https://console.aws.amazon.com/',
-				description: 'AWS Management Console',
+				url: 'https://eu-north-1.signin.aws.amazon.com/',
+				description: 'AWS Management Console EU North 1',
+			},
+			{
+				url: 'https://eu-west-1.signin.aws.amazon.com/',
+				description: 'AWS Management Console EU West 1',
+			},
+			{
+				url: 'https://eu-central-1.signin.aws.amazon.com/',
+				description: 'AWS Management Console EU Central 1',
 			},
 		],
 	},
@@ -139,7 +147,7 @@ export const endpoints = {
 		name: 'Microsoft',
 		urls: [
 			{
-				url: 'https://azure.microsoft.com/',
+				url: 'https://azure.microsoft.com/en-us/',
 				description: 'Microsoft Azure',
 			},
 			{
