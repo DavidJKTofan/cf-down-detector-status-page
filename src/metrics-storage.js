@@ -190,7 +190,7 @@ export class MetricsStorage {
 		try {
 			const url = new URL(request.url);
 			const endpoint = url.searchParams.get('endpoint');
-			const days = parseInt(url.searchParams.get('days')) || 1;
+			const days = parseInt(url.searchParams.get('days')) || 30; // Default to 30 days
 
 			// Limit the maximum days that can be queried to the retention period
 			const maxDays = Math.min(days, RETENTION_DAYS);
@@ -226,13 +226,14 @@ export class MetricsStorage {
 				totalChecks: history.length,
 				upChecks: upEntries.length,
 				retentionDays: RETENTION_DAYS,
-				history: history.slice(-200), // Return last 200 entries for charting (increased for better resolution)
+				history: history, // Return all entries for the time period
 			};
 
 			return new Response(JSON.stringify(stats, null, 2), {
 				headers: {
 					'Content-Type': 'application/json',
 					'Access-Control-Allow-Origin': '*',
+					'Cache-Control': 'public, max-age=60', // Cache for 1 minute
 				},
 			});
 		} catch (error) {

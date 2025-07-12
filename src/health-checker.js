@@ -61,58 +61,70 @@ export class HealthChecker {
     }
   }
 
-	async checkEndpoint(endpoint) {
-		const startTime = Date.now();
+	async checkEndpoint(endpoint, retries = 2) {
+		let attempt = 0;
+		while (attempt <= retries) {
+			const startTime = Date.now();
+			try {
+				const controller = new AbortController();
+				const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+				const response = await fetch(endpoint, {
+					method: 'HEAD', // Use HEAD request to minimize data transfer
+					signal: controller.signal,
+					headers: {
+						'User-Agent': 'StatusChecker/1.0 (Cloudflare Worker)',
+						Accept: '*/*',
+						'Cache-Control': 'no-cache',
+					},
+					redirect: 'follow', // Follow redirects
+				});
 
-			const response = await fetch(endpoint, {
-				method: 'HEAD', // Use HEAD request to minimize data transfer
-				signal: controller.signal,
-				headers: {
-					'User-Agent': 'StatusChecker/1.0 (Cloudflare Worker)',
-					Accept: '*/*',
-				},
-				redirect: 'follow', // Follow redirects
-			});
+				clearTimeout(timeoutId);
+				const endTime = Date.now();
+				const latency = endTime - startTime;
 
-			clearTimeout(timeoutId);
-			const endTime = Date.now();
-			const latency = endTime - startTime;
+				// Consider redirects as success
+				const isSuccess = response.ok || (response.status >= 300 && response.status < 400);
 
-			// Consider redirects as success
-			const isSuccess = response.ok || (response.status >= 300 && response.status < 400);
+				return {
+					endpoint,
+					status: isSuccess ? 'up' : 'down',
+					statusCode: response.status,
+					latency,
+					error: isSuccess ? null : `HTTP ${response.status}`,
+					method: 'HEAD',
+					timestamp: new Date().toISOString(),
+					attempt: attempt + 1
+				};
+			} catch (error) {
+				const endTime = Date.now();
+				const latency = endTime - startTime;
 
-			return {
-				endpoint,
-				status: isSuccess ? 'up' : 'down',
-				statusCode: response.status,
-				latency,
-				error: isSuccess ? null : `HTTP ${response.status}`,
-				method: 'HEAD',
-				timestamp: new Date().toISOString(),
-			};
-		} catch (error) {
-			const endTime = Date.now();
-			const latency = endTime - startTime;
+				// If we have retries left, try again
+				if (attempt < retries) {
+					attempt++;
+					await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+					continue;
+				}
 
-			let status = 'down';
-			let errorMessage = error.message;
+				let status = 'down';
+				let errorMessage = error.message;
 
-			if (error.name === 'AbortError') {
-				errorMessage = 'Request timeout (10s)';
+				if (error.name === 'AbortError') {
+					errorMessage = 'Request timeout (10s)';
+				}
+
+				return {
+					endpoint,
+					status,
+					latency: 0, // Don't count failed request latency
+					error: errorMessage,
+					method: 'HEAD',
+					timestamp: new Date().toISOString(),
+					attempt: attempt + 1
+				};
 			}
-
-			return {
-				endpoint,
-				status,
-				latency: 0, // Don't count failed request latency
-				error: errorMessage,
-				method: 'HEAD',
-				timestamp: new Date().toISOString(),
-			};
 		}
 	}
 

@@ -330,7 +330,7 @@
 			async function updateChart(endpoint) {
 				try {
 					showLoading();
-					const data = await tryFetch(`/api/metrics?endpoint=${encodeURIComponent(endpoint)}`);
+					const data = await tryFetch(`/api/metrics?endpoint=${encodeURIComponent(endpoint)}&days=30`);
 					hideLoading();
 
 					// Show chart header with endpoint
@@ -346,6 +346,10 @@
 					} else {
 						elements.statsSection.style.display = 'none';
 					}
+
+					// Show chart
+					elements.noChart.style.display = 'none';
+					elements.chartCanvas.style.display = 'block';
 
 					// Show chart
 					elements.noChart.style.display = 'none';
@@ -398,12 +402,12 @@
 									padding: 12,
 									displayColors: false,
 									callbacks: {
-										title: (context) => {
-											const dataIndex = context[0].dataIndex;
-											const originalDate = data.history[dataIndex].date;
-											return new Date(originalDate).toLocaleString();
+										title: (tooltipItems) => {
+											return new Date(data.history[tooltipItems[0].dataIndex].date).toLocaleString();
 										},
-										label: (context) => `Response time: ${context.raw.toFixed(1)}ms`,
+										label: (context) => {
+											return `Response time: ${data.history[context.dataIndex].latency.toFixed(1)}ms`;
+										},
 									},
 								},
 							},
@@ -431,7 +435,11 @@
 										color: '#94a3b8',
 										maxRotation: 45,
 										autoSkip: true,
-										maxTicksLimit: 10,
+										maxTicksLimit: 15,
+										callback: function(value, index) {
+											const date = new Date(data.history[index].date);
+											return date.toLocaleDateString();
+										}
 									},
 									title: {
 										display: true,
